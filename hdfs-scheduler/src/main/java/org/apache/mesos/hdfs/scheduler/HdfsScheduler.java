@@ -127,6 +127,12 @@ public class HdfsScheduler implements org.apache.mesos.Scheduler, Runnable {
       status.getMessage(),
       liveState.getStagingTasksSize()));
 
+    log.info("Sleeping for 5 seconds");
+    try {
+      Thread.sleep(5000);
+    } catch (Exception ex) {
+    }
+
     if (!isStagingState(status)) {
       liveState.removeStagingTask(status.getTaskId());
     }
@@ -653,7 +659,7 @@ public class HdfsScheduler implements org.apache.mesos.Scheduler, Runnable {
     // different slaves to reregister upon master failover.
     driver.reconcileTasks(Collections.<Protos.TaskStatus>emptyList());
     Timer timer = new Timer();
-    timer.schedule(new ReconcileStateTask(), hdfsFrameworkConfig.getReconciliationTimeout() * SECONDS_FROM_MILLIS);
+    timer.schedule(new ReconcileStateTask(), 0);
   }
 
   private class ReconcileStateTask extends TimerTask {
