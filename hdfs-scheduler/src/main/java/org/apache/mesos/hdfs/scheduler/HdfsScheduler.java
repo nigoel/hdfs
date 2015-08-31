@@ -2,10 +2,12 @@ package org.apache.mesos.hdfs.scheduler;
 
 import com.google.inject.Inject;
 import com.google.protobuf.ByteString;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.mesos.MesosSchedulerDriver;
 import org.apache.mesos.Protos;
+import org.apache.mesos.Protos.Attribute;
 import org.apache.mesos.Protos.CommandInfo;
 import org.apache.mesos.Protos.Credential;
 import org.apache.mesos.Protos.Environment;
@@ -23,6 +25,7 @@ import org.apache.mesos.Protos.TaskInfo;
 import org.apache.mesos.Protos.TaskState;
 import org.apache.mesos.Protos.TaskStatus;
 import org.apache.mesos.Protos.Value;
+import org.apache.mesos.Protos.Value.Range;
 import org.apache.mesos.SchedulerDriver;
 import org.apache.mesos.hdfs.config.HdfsFrameworkConfig;
 import org.apache.mesos.hdfs.state.AcquisitionPhase;
@@ -55,7 +58,7 @@ public class HdfsScheduler implements org.apache.mesos.Scheduler, Runnable {
   private final HdfsFrameworkConfig hdfsFrameworkConfig;
   private final LiveState liveState;
   private final IPersistentStateStore persistenceStore;
-  private final DnsResolver dnsResolver;
+  private final DnsResolver dnsResolver; 
 
   @Inject
   public HdfsScheduler(HdfsFrameworkConfig hdfsFrameworkConfig,
@@ -206,7 +209,10 @@ public class HdfsScheduler implements org.apache.mesos.Scheduler, Runnable {
       journalNodesResolvable = dnsResolver.journalNodesResolvable();
     }
     for (Offer offer : offers) {
-      if (acceptedOffer) {
+      if (!constraintsAllow(offer)) {
+        driver.declineOffer(offer.getId());
+      }
+      else if (acceptedOffer) {
         driver.declineOffer(offer.getId());
       } else {
         switch (liveState.getCurrentAcquisitionPhase()) {
@@ -334,6 +340,90 @@ public class HdfsScheduler implements org.apache.mesos.Scheduler, Runnable {
       persistenceStore.addHdfsNode(taskId, offer.getHostname(), taskType, taskName);
     }
     driver.launchTasks(Arrays.asList(offer.getId()), tasks);
+    return true;
+  }
+  
+  public boolean constraintsAllow(Offer offer) {
+    List<Attribute> attributes = offer.getAttributesList();
+
+    for (String constraint : hdfsFrameworkConfig.getMesosSlaveConstraints()
+        .keySet()) {
+      boolean found = false;
+      String constraintValue = hdfsFrameworkConfig.getMesosSlaveConstraints()
+          .get(constraint);
+      for (Attribute attribute : attributes) {
+
+        if (attribute.getName().equals(constraint)) {
+
+          switch (attribute.getType()) {
+          case RANGES:
+            if (attribute.hasRanges()) {
+              try {
+                Long value = Long.parseLong(constraintValue);
+                for (Range r : attribute.getRanges().getRangeList()) {
+                  if ((!r.hasBegin() || value >= r.getBegin())
+                      && (!r.hasEnd() || value <= r.getEnd())) {
+                    found = true;
+                    break;
+                  }
+                }
+              } catch (NumberFormatException e) {
+                found = false;
+                // not a range attribute 
+              }
+            }
+            break;
+          case SCALAR:
+            if (attribute.hasScalar()) {
+              try {
+                if (attribute.getScalar().getValue() >= Double
+                    .parseDouble(constraintValue)) {
+                  found = true;
+                }
+              } catch (NumberFormatException e) {
+                found = false;
+                // not a scalar attribute 
+              }
+            }
+            break;
+          case SET:
+            if (attribute.hasSet()) {
+              boolean isSubset = true;
+              for (String element : constraintValue.split("=")) {
+                if (!attribute.getSet().getItemList().contains(element)) {
+                  isSubset = false;
+                  break;
+                }
+              }
+
+              found = isSubset;
+            }
+            break;
+          case TEXT:
+            if (attribute.hasText()
+                && (!attribute.getText().hasValue() || attribute.getText()
+                    .getValue().equals(constraintValue))) {
+              found = true;
+              break;
+            }
+            break;
+          default:
+            break;
+
+          }
+
+        }
+
+        if (found) {
+          break;
+        }
+      }
+
+      if (!found) {
+        return false;
+      }
+    }
+
     return true;
   }
 
