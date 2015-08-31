@@ -1,6 +1,8 @@
 package org.apache.mesos.hdfs.config;
 
 import com.google.inject.Singleton;
+
+import org.apache.commons.lang.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
@@ -8,6 +10,8 @@ import org.apache.hadoop.fs.Path;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 
 /**
@@ -38,6 +42,8 @@ public class HdfsFrameworkConfig {
   private static final int DEFAULT_DEADNODE_TIMEOUT = 90;
 
   private final Log log = LogFactory.getLog(HdfsFrameworkConfig.class);
+
+  private Map<String, String> constraintsMap;
 
   public HdfsFrameworkConfig(Configuration conf) {
     setConf(conf);
@@ -302,5 +308,24 @@ public class HdfsFrameworkConfig {
 
   public String getJreVersion() {
     return getConf().get("mesos.hdfs.jre-version", "jre1.7.0_76");
+  }
+  
+  public Map<String, String> getMesosSlaveConstraints() {
+    if (null == this.constraintsMap) {
+      String constraints = getConf().get("mesos.hdfs.constraints");
+      this.constraintsMap = new HashMap<String, String>();
+      if (!StringUtils.isBlank(constraints)) {
+        String[] constraintsPairs = constraints.split(";");
+        for (String pair : constraintsPairs) {
+          String[] keyValue = pair.split(":");
+          String key = keyValue[0];
+          String value = keyValue.length == 2 ? keyValue[1]
+              : keyValue.length == 1 ? "" : pair.substring(pair.indexOf(":"));
+          constraintsMap.put(key, value);
+        }
+      }
+    }
+
+    return this.constraintsMap;
   }
 }
